@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html lang="ka">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>MAFIA - The Game</title>
+    <style>
+        :root {
+            --bg-color: #1a1a1a;
+            --card-bg: #000000;
+            --accent-red: #e63946;
+            --text-white: #f1faee;
+        }
+
+        * { box-sizing: border-box; font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; -webkit-tap-highlight-color: transparent; }
+
+        body {
+            background-color: var(--bg-color);
+            color: var(--text-white);
+            margin: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            min-height: 100vh;
+        }
+
+        .lang-switch { position: absolute; top: 10px; right: 10px; display: flex; gap: 5px; }
+        .lang-btn { background: #333; color: white; border: 1px solid #555; padding: 5px 10px; border-radius: 5px; cursor: pointer; }
+        .lang-btn.active { background: var(--accent-red); border-color: var(--accent-red); }
+
+        h1 { font-size: 2.5rem; letter-spacing: 5px; margin: 30px 0 10px 0; border-bottom: 2px solid var(--accent-red); }
+
+        .container { width: 90%; max-width: 400px; text-align: center; padding-top: 20px; }
+
+        /* Setup Styles */
+        .role-picker { background: #222; padding: 15px; border-radius: 10px; }
+        .role-row { display: flex; justify-content: space-between; align-items: center; margin: 15px 0; }
+        .role-controls { display: flex; align-items: center; gap: 15px; }
+        .btn-circle { width: 35px; height: 35px; border-radius: 50%; border: 1px solid white; background: transparent; color: white; font-size: 20px; }
+        .start-btn { width: 100%; padding: 15px; background: var(--accent-red); color: white; border: none; font-size: 1.2rem; font-weight: bold; cursor: pointer; margin-top: 20px; border-radius: 5px; }
+
+        /* Card Animation */
+        .card-container { perspective: 1000px; width: 280px; height: 400px; margin: 30px auto; }
+        .card { width: 100%; height: 100%; position: relative; transition: transform 0.6s; transform-style: preserve-3d; cursor: pointer; }
+        .card.is-flipped { transform: rotateY(180deg); }
+        .card-face { position: absolute; width: 100%; height: 100%; backface-visibility: hidden; display: flex; flex-direction: column; align-items: center; justify-content: center; border-radius: 15px; border: 4px solid #333; }
+        .card-front { background-color: var(--card-bg); }
+        .card-back { background-color: var(--card-bg); transform: rotateY(180deg); }
+
+        /* Intermediate screen */
+        #pass-screen { display: none; padding: 40px 20px; }
+        .pass-icon { font-size: 4rem; margin-bottom: 20px; }
+
+        /* Timer */
+        #game-screen { display: none; }
+        .timer-display { font-size: 4.5rem; margin: 20px 0; color: var(--accent-red); font-weight: bold; }
+        .timer-btns { display: flex; gap: 10px; justify-content: center; }
+        .t-btn { padding: 10px 15px; background: transparent; border: 1px solid white; color: white; border-radius: 4px; }
+        
+        .hidden { display: none; }
+    </style>
+</head>
+<body>
+
+    <div class="lang-switch">
+        <button class="lang-btn active" id="btn-en" onclick="setLanguage('en')">EN</button>
+        <button class="lang-btn" id="btn-ka" onclick="setLanguage('ka')">ქარ</button>
+    </div>
+
+    <!-- SETUP -->
+    <div id="setup-screen" class="container">
+        <h1>MAFIA</h1>
+        <p id="setup-instruction">Set player roles (6-12)</p>
+        <div class="role-picker" id="role-list"></div>
+        <div style="margin: 20px 0;"><span id="txt-total">Total Players</span>: <span id="total-count">0</span></div>
+        <button class="start-btn" id="btn-start" onclick="startGame()">START GAME</button>
+    </div>
+
+    <!-- PASS PHONE SCREEN (The Fix) -->
+    <div id="pass-screen" class="container">
+        <div class="pass-icon">📱➡️👤</div>
+        <h2 id="pass-msg">Pass the phone to Player 2</h2>
+        <button class="start-btn" id="btn-ready" onclick="showNextCard()">I AM READY</button>
+    </div>
+
+    <!-- CARD DISPLAY -->
+    <div id="distribution-screen" class="container hidden">
+        <h2 id="player-turn-text">Player 1</h2>
+        <div class="card-container">
+            <div class="card" id="card" onclick="flipCard()">
+                <div class="card-face card-front">
+                    <div style="font-size: 5rem;">?</div>
+                    <p id="txt-reveal">Tap to reveal</p>
+                </div>
+                <div class="card-face card-back" id="card-back-content"></div>
+            </div>
+        </div>
+        <button id="next-btn" class="start-btn hidden" onclick="prepareNextPlayer()">NEXT PLAYER</button>
+    </div>
+
+    <!-- GAME TIMER -->
+    <div id="game-screen" class="container">
+        <h1 id="txt-day-phase">DAY PHASE</h1>
+        <div class="timer-display" id="timer">01:00</div>
+        <div class="timer-btns">
+            <button class="t-btn" onclick="startTimer(60)">1 MIN</button>
+            <button class="t-btn" onclick="startTimer(30)">30 SEC</button>
+            <button class="t-btn" onclick="resetTimer()" style="color: var(--accent-red); border-color: var(--accent-red);">RESET</button>
+        </div>
+        <button class="start-btn" style="margin-top: 50px; background: #333;" onclick="location.reload()" id="btn-new-game">NEW GAME</button>
+    </div>
+
+    <script>
+        let currentLang = 'en';
+        let gameRoles = [];
+        let currentIndex = 0;
+        let timerInterval;
+
+        const i18n = {
+            en: {
+                setupInstr: "Set player roles (6-12)", total: "Total Players", start: "START GAME",
+                player: "Player", reveal: "Tap to reveal", hide: "Tap again to hide",
+                next: "NEXT PLAYER", day: "DAY PHASE", newGame: "NEW GAME", timeUp: "Time is up!",
+                passTo: "Pass phone to", ready: "I AM READY",
+                roles: { mafia: "Mafia", don: "Don", detective: "Detective", doctor: "Doctor", killer: "Serial Killer", civilian: "Civilian" }
+            },
+            ka: {
+                setupInstr: "აირჩიეთ როლები (6-12)", total: "სულ მოთამაშეები", start: "თამაშის დაწყება",
+                player: "მოთამაშე", reveal: "დააჭირეთ სანახავად", hide: "დააჭირეთ დასამალად",
+                next: "შემდეგი მოთამაშე", day: "დღის ფაზა", newGame: "ახალი თამაში", timeUp: "დრო ამოიწურა!",
+                passTo: "გადაეცით ტელეფონი:", ready: "მე ვარ",
+                roles: { mafia: "მაფია", don: "დონი", detective: "დეტექტივი", doctor: "ექიმი", killer: "სერიული მკვლელი", civilian: "მოქალაქე" }
+            }
+        };
+
+        const rolesData = [
+            { id: 'mafia', count: 1 }, { id: 'don', count: 1 }, { id: 'detective', count: 1 },
+            { id: 'doctor', count: 1 }, { id: 'killer', count: 0 }, { id: 'civilian', count: 3 }
+        ];
+
+        function setLanguage(lang) {
+            currentLang = lang;
+            document.getElementById('btn-en').classList.toggle('active', lang === 'en');
+            document.getElementById('btn-ka').classList.toggle('active', lang === 'ka');
+            document.getElementById('setup-instruction').innerText = i18n[lang].setupInstr;
+            document.getElementById('txt-total').innerText = i18n[lang].total;
+            document.getElementById('btn-start').innerText = i18n[lang].start;
+            document.getElementById('txt-reveal').innerText = i18n[lang].reveal;
+            document.getElementById('txt-day-phase').innerText = i18n[lang].day;
+            document.getElementById('btn-new-game').innerText = i18n[lang].newGame;
+            document.getElementById('next-btn').innerText = i18n[lang].next;
+            document.getElementById('btn-ready').innerText = i18n[lang].ready;
+            initSetup();
+        }
+
+        function initSetup() {
+            const list = document.getElementById('role-list');
+            list.innerHTML = rolesData.map(role => `
+                <div class="role-row">
+                    <span>${i18n[currentLang].roles[role.id]}</span>
+                    <div class="role-controls">
+                        <button class="btn-circle" onclick="updateRole('${role.id}', -1)">-</button>
+                        <span id="cnt-${role.id}">${role.count}</span>
+                        <button class="btn-circle" onclick="updateRole('${role.id}', 1)">+</button>
+                    </div>
+                </div>
+            `).join('');
+            updateTotal();
+        }
+
+        function updateRole(id, delta) {
+            const role = rolesData.find(r => r.id === id);
+            if (role.count + delta >= 0) {
+                role.count += delta;
+                document.getElementById(`cnt-${id}`).innerText = role.count;
+                updateTotal();
+            }
+        }
+
+        function updateTotal() {
+            const total = rolesData.reduce((sum, r) => sum + r.count, 0);
+            document.getElementById('total-count').innerText = total;
+        }
+
+        function startGame() {
+            const total = rolesData.reduce((sum, r) => sum + r.count, 0);
+            if (total < 6 || total > 12) {
+                alert(currentLang === 'en' ? "Select 6-12 players" : "აირჩიეთ 6-12 მოთამაშე");
+                return;
+            }
+            gameRoles = [];
+            rolesData.forEach(r => { for(let i=0; i<r.count; i++) gameRoles.push(r.id); });
+            gameRoles.sort(() => Math.random() - 0.5);
+            
+            currentIndex = 0;
+            document.getElementById('setup-screen').classList.add('hidden');
+            showNextCard();
+        }
+
+        // 1. Shows the "?" card for the current player
+        function showNextCard() {
+            document.getElementById('pass-screen').style.display = 'none';
+            document.getElementById('distribution-screen').classList.remove('hidden');
+            
+            document.getElementById('player-turn-text').innerText = `${i18n[currentLang].player} ${currentIndex + 1}`;
+            document.getElementById('card').classList.remove('is-flipped');
+            document.getElementById('next-btn').classList.add('hidden');
+            
+            const roleId = gameRoles[currentIndex];
+            const back = document.getElementById('card-back-content');
+            
+            // Generate Icon
+            let iconSvg = ''; 
+            if(roleId === 'mafia') iconSvg = `<svg viewBox="0 0 100 100"><path d="M20 50 Q50 10 80 50 L85 60 H15 Z" fill="white"/><circle cx="58" cy="65" r="2" fill="red"/></svg>`;
+            else if(roleId === 'don') iconSvg = `<svg viewBox="0 0 100 100"><path d="M30 30 H70 V50 L50 70 L30 50 Z" fill="white"/><circle cx="60" cy="55" r="4" fill="red"/></svg>`;
+            else if(roleId === 'detective') iconSvg = `<svg viewBox="0 0 100 100"><circle cx="50" cy="40" r="20" fill="white"/><path d="M50 40 L55 30 L50 20 L45 30 Z" fill="red"/></svg>`;
+            else if(roleId === 'doctor') iconSvg = `<svg viewBox="0 0 100 100"><rect x="30" y="20" width="40" height="40" rx="5" fill="white"/><rect x="45" y="25" width="10" height="30" fill="red"/></svg>`;
+            else iconSvg = `<svg viewBox="0 0 100 100"><path d="M20 70 Q50 20 80 70 Z" fill="white"/></svg>`;
+
+            back.innerHTML = `
+                <div class="role-icon" style="width:140px;height:140px;margin-bottom:20px;">${iconSvg}</div>
+                <div class="role-name" style="font-size:1.8rem;font-weight:bold;">${i18n[currentLang].roles[roleId]}</div>
+                <p style="color:#aaa;font-size:0.9rem;">${i18n[currentLang].hide}</p>
+            `;
+        }
+
+        function flipCard() {
+            document.getElementById('card').classList.add('is-flipped');
+            document.getElementById('next-btn').classList.remove('hidden');
+        }
+
+        // 2. Prepares the "Pass Phone" screen
+        function prepareNextPlayer() {
+            currentIndex++;
+            if (currentIndex < gameRoles.length) {
+                // Hide card screen, show Pass Phone screen
+                document.getElementById('distribution-screen').classList.add('hidden');
+                document.getElementById('pass-screen').style.display = 'block';
+                document.getElementById('pass-msg').innerText = `${i18n[currentLang].passTo} ${i18n[currentLang].player} ${currentIndex + 1}`;
+                
+                // Safety: Clear the back content so it's not even in the HTML
+                document.getElementById('card-back-content').innerHTML = "";
+            } else {
+                document.getElementById('distribution-screen').classList.add('hidden');
+                document.getElementById('game-screen').style.display = 'block';
+            }
+        }
+
+        function startTimer(seconds) {
+            clearInterval(timerInterval);
+            let time = seconds;
+            const display = document.getElementById('timer');
+            timerInterval = setInterval(() => {
+                let mins = Math.floor(time / 60);
+                let secs = time % 60;
+                display.innerText = `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+                if (time-- <= 0) { clearInterval(timerInterval); alert(i18n[currentLang].timeUp); }
+            }, 1000);
+        }
+
+        function resetTimer() { clearInterval(timerInterval); document.getElementById('timer').innerText = "01:00"; }
+
+        setLanguage('ka');
+    </script>
+</body>
+</html>
